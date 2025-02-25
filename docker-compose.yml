@@ -1,0 +1,37 @@
+services:
+  api:
+    container_name: catalog-api
+    # build: C:\Users\musta\products-api Replace with your API image
+    build:
+      context: ./ # Utilisez le chemin relatif pour le contexte
+      dockerfile: ./catalog-api/Dockerfile # Chemin relatif vers votre Dockerfile
+    ports:
+    - "8080:80"  # Expose the port of your API
+    networks:
+    - mynetwork
+
+  db:
+    container_name: catalog-db
+    # build: C:\Users\musta\products-api\sql-scripts # Replace with your frontend image
+    build:
+      context: ./sql-scripts # Contexte relatif vers votre dossier sql-scripts
+    ports:
+    - "4444:3306"  # Expose the port of your frontend
+    networks:
+    - mynetwork
+
+  server:
+    container_name: catalog-server-nginx
+    # build: C:\Users\musta\products-api\nginx
+    build:
+      context: ./nginx # Contexte relatif vers votre dossier Nginx
+    ports:
+    - "80:81"  # Expose Nginx on port 8080
+    depends_on:
+      - api
+    networks:
+      - mynetwork
+
+networks:
+  mynetwork:
+    driver: bridge
