@@ -2,7 +2,8 @@
 FROM nginx:latest
 
 # Copy the Nginx configuration into the container
-COPY nginx.conf /etc/nginx/conf.d
+COPY nginx.conf /etc/nginx/nginx.conf
 
 # Expose port 80 for Nginx
 EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

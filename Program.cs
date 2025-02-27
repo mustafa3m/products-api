@@ -7,7 +7,7 @@
 //using products_api.Data;
 //using products_api.Endpoints;
 //using Microsoft.OpenApi.Models;
-//using Renci.SshNet; // Ajouter SSH.NET pour la connexion à EC2
+//using Renci.SshNet; // Ajouter SSH.NET pour la connexion ï¿½ EC2
 //using System;
 
 //var builder = WebApplication.CreateBuilder(args);
@@ -63,7 +63,7 @@
 //void ConnectAndInstallDocker()
 //{
 //     Remplacer ces valeurs par vos propres informations
-//    string privateKeyPath = @"path\to\your-key.pem";  // Remplacer par le chemin vers votre clé privée
+//    string privateKeyPath = @"path\to\your-key.pem";  // Remplacer par le chemin vers votre clï¿½ privï¿½e
 //string ec2PublicIp = "your-ec2-public-ip";         // Remplacer par l'IP publique de votre EC2
 //string username = "ubuntu";
 
@@ -82,11 +82,11 @@
 //{
 //    try
 //    {
-//        Se connecter à EC2
+//        Se connecter ï¿½ EC2
 //            client.Connect();
-//        Console.WriteLine("Connexion à EC2 réussie");
+//        Console.WriteLine("Connexion ï¿½ EC2 rï¿½ussie");
 
-//        Exécuter les commandes pour installer Docker et Docker Compose
+//        Exï¿½cuter les commandes pour installer Docker et Docker Compose
 //       var updateCommand = "sudo apt update -y";
 //        var installDockerCommand = "sudo apt install -y docker.io docker-compose";
 //        var startDockerCommand = "sudo systemctl start docker";
@@ -99,11 +99,11 @@
 //        ExecuteCommand(client, enableDockerCommand);
 //        ExecuteCommand(client, addUserToDockerCommand);
 
-//        Console.WriteLine("Docker installé et démarré avec succès.");
+//        Console.WriteLine("Docker installï¿½ et dï¿½marrï¿½ avec succï¿½s.");
 
-//        Se déconnecter du serveur
+//        Se dï¿½connecter du serveur
 //            client.Disconnect();
-//        Console.WriteLine("Déconnexion d'EC2");
+//        Console.WriteLine("Dï¿½connexion d'EC2");
 //    }
 //    catch (Exception ex)
 //    {
@@ -112,7 +112,7 @@
 //}
 //}
 
-// Fonction pour exécuter une commande SSH
+// Fonction pour exï¿½cuter une commande SSH
 //void ExecuteCommand(SshClient client, string command)
 //{
 //    var cmd = client.RunCommand(command);
@@ -120,44 +120,74 @@
 //}
 
 
-using Microsoft.EntityFrameworkCore;
+using Amazon.CloudWatch;
+using Amazon.CloudWatch.Model;
+using Serilog;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
 using products_api.Data;
 using products_api.Endpoints;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Retrieve the connection string from appsettings.json
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+// Get environment variables
+var dbHost = Environment.GetEnvironmentVariable("DB_HOST") ?? "localhost";
+var dbName = Environment.GetEnvironmentVariable("DB_NAME") ?? "product_db";
+var dbUser = Environment.GetEnvironmentVariable("DB_USER") ?? "product-api";
+var dbPass = Environment.GetEnvironmentVariable("DB_PASS") ?? "securepass";
+var awsRegion = Environment.GetEnvironmentVariable("AWS_REGION") ?? "eu-north-1"; // Change to your AWS region
+
+var connectionString = $"Server={dbHost};Database={dbName};User ID={dbUser};Password={dbPass};";
+
+// Configure Logging
+var logFilePath = "logs/api_calls.log";
+var logDirectory = Path.GetDirectoryName(logFilePath) ?? "logs";
+Directory.CreateDirectory(logDirectory);
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .WriteTo.File(logFilePath, rollingInterval: RollingInterval.Infinite, retainedFileCountLimit: null)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
+// Configure AWS CloudWatch Client
+var cloudWatchClient = new AmazonCloudWatchClient(Amazon.RegionEndpoint.GetBySystemName(awsRegion));
 
 // Add CORS policy
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()  // Allow any origin
-              .AllowAnyMethod()  // Allow any HTTP method
-              .AllowAnyHeader(); // Allow any header
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
 // Add services to the container
 builder.Services.AddDbContext<ProductsDbContext>(options =>
 {
-    // Configure MySQL provider (Pomelo or MySQL)
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
 });
 
-// Add Swagger for API documentation (OpenAPI)
+// Add Swagger for API documentation
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Products API", Version = "v1" });
+});
 
 var app = builder.Build();
 
-// Enable Swagger in development mode
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -166,12 +196,49 @@ if (app.Environment.IsDevelopment())
 
 // Apply CORS policy
 app.UseCors("AllowAll");
+app.UseHttpsRedirection();
 
-app.UseHttpsRedirection();  // Redirect HTTP requests to HTTPS
+// Middleware to log API calls and send to CloudWatch
+app.Use(async (context, next) =>
+{
+    await next(); // Proceed to the next middleware
 
-// Configure the HTTP request pipeline
-app.MapProductsEndpoints(); // Ensure endpoints are properly mapped
+    try
+    {
+        // Send custom metric to CloudWatch
+        var metricRequest = new PutMetricDataRequest
+        {
+            Namespace = "ProductApi",
+            MetricData = new List<MetricDatum>
+            {
+                new MetricDatum
+                {
+                    MetricName = "ApiCallCount",
+                    Value = 1,
+                    Unit = StandardUnit.Count,
+                    TimestampUtc = DateTime.UtcNow
+                }
+            }
+        };
 
-app.Run();  // Run the application
+        await cloudWatchClient.PutMetricDataAsync(metricRequest);
+
+        // Log API request locally
+        var logMessage = $"API called at {DateTime.UtcNow} | Path: {context.Request.Path}";
+        Log.Information(logMessage);
+    }
+    catch (Exception ex)
+    {
+        Log.Error($"Failed to log API call to CloudWatch: {ex.Message}");
+    }
+});
+
+// Map API endpoints
+app.MapProductsEndpoints();
+
+app.Run();
+
+
+
 
 

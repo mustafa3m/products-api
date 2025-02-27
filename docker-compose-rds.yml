@@ -1,0 +1,30 @@
+services:
+  api:
+    container_name: catalog-api
+    image: mustafa3mm/products-api
+    restart: always
+    environment:
+      DB_HOST: product-db.chi2me4ser07.eu-north-1.rds.amazonaws.com
+      DB_NAME: product_db
+      DB_USER: product_api
+      DB_PASS: securepass
+    ports:
+      - "8080:8080"  # Expose le port 8080 de l'hôte vers le port 80 du conteneur
+    networks:
+      - mynetwork
+  server:
+    image: mustafa3mm/products-api-nginx
+    container_name: catalog-server-nginx
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - mynetwork
+
+networks:
+  mynetwork:
+    driver: bridge
+
+

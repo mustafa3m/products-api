@@ -1,0 +1,53 @@
+services:
+  api:
+    container_name: catalog-api
+    image: mustafa3mm/products-api
+    restart: always
+    environment:
+      DB_HOST: catalog-db
+      DB_NAME: product_db
+      DB_USER: product-api
+      DB_PASS: securepass
+    ports:
+      - "8080:8080"  # Expose le port 8080 de l'hôte vers le port 80 du conteneur
+    volumes:
+      - /home/ubuntu:/app/logs
+    depends_on:
+      - db
+    networks:
+      - mynetwork
+
+  db:
+    image: mysql:8.0
+    container_name: catalog-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: product_db
+      MYSQL_USER: product-api
+      MYSQL_PASSWORD: securepass
+    volumes:
+      - mysql_backup:/var/lib/mysql
+      - ./database_setup.sql:/docker-entrypoint-initdb.d/database_setup.sql
+    networks:
+      - mynetwork
+
+  server:
+    image: mustafa3mm/products-api-nginx
+    container_name: catalog-server-nginx
+    restart: always
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+    networks:
+      - mynetwork
+
+networks:
+  mynetwork:
+    driver: bridge
+
+volumes:
+  mysql_backup:
+
+
